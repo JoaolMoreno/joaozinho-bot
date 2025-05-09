@@ -147,7 +147,7 @@ async function connectToWhatsApp(): Promise<void> {
             saveHistory(messageHistory);
         }
 
-        if (text && text.includes('@Moreno.ai')) {
+        if (text && text.includes('@Moreno.ai') && !text.includes('Moreno AI 🤖')) {
             const historico = await gethistorico(from, 20);
             let contexto = `Contexto do chat:\n${historico}\n\nUsuário: ${text}`;
 
