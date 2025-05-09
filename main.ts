@@ -111,6 +111,7 @@ async function connectToWhatsApp(): Promise<void> {
         const from = msg.key.remoteJid;
         if (!from) return;
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
+        if (!text) return;
         const quotedMessage = msg.message.extendedTextMessage?.contextInfo?.quotedMessage;
         const quotedText = quotedMessage?.conversation || quotedMessage?.extendedTextMessage?.text || '[mídia]';
         const isGroup = from.endsWith('@g.us');
