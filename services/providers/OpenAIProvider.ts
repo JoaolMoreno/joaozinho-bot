@@ -10,20 +10,16 @@ export class OpenAIProvider implements IAProvider {
 
     async getResponse(userMessage: string, contexto: string | null): Promise<string> {
         try {
-            let systemContent = `Você é Moreno AI, uma inteligência artificial...`;
-            if (contexto) {
-                systemContent += `\n\nContexto do chat:\n${contexto}`;
-            }
-
             const response = await axios.post(
                 'https://api.openai.com/v1/chat/completions',
                 {
-                    model: 'gpt-4',
+                    model: 'gpt-3.5-turbo',
                     messages: [
-                        { role: 'system', content: systemContent },
+                        { role: 'system', content: contexto || '' },
                         { role: 'user', content: userMessage }
                     ],
-                    max_tokens: 200
+                    max_tokens: 4096,
+                    temperature: 0.5,
                 },
                 {
                     headers: {
