@@ -48,15 +48,17 @@ const systemPromptTemplate = loadSystemPrompt();
 
 async function getAIResponse(userMessage: string, contexto: string | null = null): Promise<string> {
     try {
-        let systemContent = systemPromptTemplate;
+        const agora = new Date();
+        const diaSemana = agora.toLocaleDateString('pt-BR', { weekday: 'long' });
+        const context = `Hoje é ${diaSemana}, ${agora.toLocaleDateString('pt-BR')}, ${agora.toLocaleTimeString('pt-BR')}.`;
+        let systemContent = `${context}\n${systemPromptTemplate}`;
         if (contexto) {
-            console.log(contexto);
             systemContent += `\n${contexto}`;
         }
 
         return await iaService.getResponse(userMessage, systemContent);
     } catch (error: any) {
-        console.error('Erro ao chamar XAI:', error.message);
+        console.error('Erro ao chamar AI:', error.message);
         return 'Desculpe, não consegui gerar uma resposta no momento.';
     }
 }
@@ -156,7 +158,7 @@ async function connectToWhatsApp(): Promise<void> {
             if (!messageHistory[from]) {
                 messageHistory[from] = [];
             }
-            if (nomeContato.includes('Participante desconhecido') && text.startsWith('Moreno AI 🤖:')) {
+            if (nomeContato.includes('Participante desconhecido') && text.includes('Moreno AI 🤖')) {
                 messageHistory[from].push(`Moreno AI: ${text.replace('Moreno AI 🤖:', '').trim()}`);
             } else {
                 messageHistory[from].push(`${nomeContato}: ${text}`);
