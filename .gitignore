@@ -30,4 +30,6 @@ package-lock.json
 
 auth_info
 history.json
+humor.json
 ia_interactions_log.json
+prompts/
