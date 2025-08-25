@@ -2,16 +2,35 @@ import makeWASocket, { useMultiFileAuthState } from 'baileys';
 import * as QRCode from 'qrcode';
 import { FlowManager } from './src/services/FlowManager';
 import { ServicosFlow } from './src/flows/ServicosFlow';
-import {existsSync, unlinkSync} from "fs";
+import { existsSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
+import * as path from 'path';
+import express from 'express';
+
+const HISTORY_FILE = './history.json';
+function loadHistory(): Record<string, string[]> {
+    if (existsSync(HISTORY_FILE)) {
+        const data = readFileSync(HISTORY_FILE, 'utf-8');
+        return JSON.parse(data);
+    }
+    return {};
+}
+function saveHistory(history: Record<string, string[]>): void {
+    writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
+}
+const messageHistory = loadHistory();
+
+let sockGlobal: any = null;
 
 async function connectToWhatsApp(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
     const sock = makeWASocket({ auth: state });
+    sockGlobal = sock;
 
     const flowManager = new FlowManager();
     flowManager.registerFlow(new ServicosFlow());
 
-    sock.ev.on('connection.update', ({ connection, qr }) => {
+    sock.ev.on('connection.update', (update) => {
+        const { connection, qr, lastDisconnect } = update;
         if (qr) {
             QRCode.toFile('./qrcode.png', qr, (err: any) => {
                 if (err) console.error('Erro ao gerar QR Code', err);
@@ -21,7 +40,12 @@ async function connectToWhatsApp(): Promise<void> {
         if (connection === 'open') {
             console.log('✅ Conectado ao WhatsApp');
         } else if (connection === 'close') {
-            console.log('❌ Conexão encerrada');
+            let reason = '';
+            if (lastDisconnect && lastDisconnect.error) {
+                reason = ` Motivo: ${(lastDisconnect.error as Error).message}`;
+                console.error('Erro de conexão:', lastDisconnect.error);
+            }
+            console.log(`❌ Conexão encerrada.${reason}`);
             if (existsSync('./qrcode.png')) unlinkSync('./qrcode.png');
         }
     });
@@ -39,9 +63,31 @@ async function connectToWhatsApp(): Promise<void> {
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         if (!text) return;
 
-        console.log(`📥 Mensagem de ${from}: ${text}`);
+        // Obtenção correta do nome do grupo e do participante
+        let nomeContato: string;
+        let nomeGrupo: string = '';
+        if (from.endsWith('@g.us')) {
+            try {
+                const groupMetadata = await sock.groupMetadata(from);
+                nomeGrupo = groupMetadata.subject || 'Grupo sem nome';
+                nomeContato = msg.pushName || msg.key.participant || 'Participante desconhecido';
+            } catch (err) {
+                nomeGrupo = 'Grupo desconhecido';
+                nomeContato = 'Participante desconhecido';
+            }
+        } else {
+            nomeContato = msg.pushName || msg.key.participant || from;
+        }
+        const nomeContatoFormatado = nomeGrupo ? `[${nomeGrupo}] ${nomeContato}` : nomeContato;
+        console.log(`📥 Mensagem de ${nomeContatoFormatado}: ${text}`);
 
-        if(!text.includes('🤖')){
+        // Salvar histórico
+        if (!messageHistory[from]) messageHistory[from] = [];
+        messageHistory[from].push(`${nomeContatoFormatado}: ${text}`);
+        saveHistory(messageHistory);
+
+        // Só entra no fluxo e responde se começar com "joaozinho"
+        if (text.trim().toLowerCase().startsWith('joaozinho')) {
             await flowManager.handleMessage(from, text, async (reply) => {
                 await sendMessage(from, reply, msg);
             });
@@ -52,3 +98,32 @@ async function connectToWhatsApp(): Promise<void> {
 }
 
 connectToWhatsApp();
+
+
+const app = express();
+app.use(express.json());
+
+app.post('/send', async (req, res) => {
+    const { id, mensagem } = req.body;
+    if (!id || !mensagem) {
+        return res.status(400).json({ error: 'id e mensagem são obrigatórios' });
+    }
+    if (!sockGlobal) {
+        return res.status(503).json({ error: 'WhatsApp não conectado ainda.' });
+    }
+    try {
+        await sockGlobal.sendMessage(id, { text: mensagem });
+        // Salva no histórico também
+        if (!messageHistory[id]) messageHistory[id] = [];
+        messageHistory[id].push(`(API): ${mensagem}`);
+        saveHistory(messageHistory);
+        res.json({ status: 'Mensagem enviada', id, mensagem });
+    } catch (e: any) {
+        res.status(500).json({ error: 'Erro ao enviar mensagem', details: e.message });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Express rodando na porta ${PORT}`);
+});
