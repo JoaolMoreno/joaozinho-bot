@@ -3,7 +3,6 @@ import * as QRCode from 'qrcode';
 import { FlowManager } from './src/services/FlowManager';
 import { ServicosFlow } from './src/flows/ServicosFlow';
 import { existsSync, unlinkSync, readFileSync, writeFileSync } from 'fs';
-import * as path from 'path';
 import express from 'express';
 
 const HISTORY_FILE = './history.json';
@@ -20,6 +19,11 @@ function saveHistory(history: Record<string, string[]>): void {
 const messageHistory = loadHistory();
 
 let sockGlobal: any = null;
+
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
+const PROJECT_NAME = pkg.name || 'Projeto';
+const BOT_NAME = pkg.botName || 'Bot';
 
 async function connectToWhatsApp(): Promise<void> {
     const { state, saveCreds } = await useMultiFileAuthState('./auth_info');
@@ -63,35 +67,46 @@ async function connectToWhatsApp(): Promise<void> {
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         if (!text) return;
 
-        // Obtenção correta do nome do grupo e do participante
         let nomeContato: string;
         let nomeGrupo: string = '';
         if (from.endsWith('@g.us')) {
             try {
                 const groupMetadata = await sock.groupMetadata(from);
                 nomeGrupo = groupMetadata.subject || 'Grupo sem nome';
-                nomeContato = msg.pushName || msg.key.participant || 'Participante desconhecido';
+                if (msg.key.fromMe) {
+                    nomeContato = BOT_NAME;
+                } else if (msg.pushName) {
+                    nomeContato = msg.pushName;
+                } else if (msg.key.participant) {
+                    // Extrai o número do JID (ex: 556599377914@s.whatsapp.net)
+                    const jid = msg.key.participant;
+                    const match = jid.match(/^(\d+)(@.*)?$/);
+                    nomeContato = match ? match[1] : jid;
+                } else {
+                    nomeContato = 'Desconhecido';
+                }
             } catch (err) {
                 nomeGrupo = 'Grupo desconhecido';
-                nomeContato = 'Participante desconhecido';
+                nomeContato = 'Desconhecido';
             }
         } else {
-            nomeContato = msg.pushName || msg.key.participant || from;
+            if (msg.key.fromMe) {
+                nomeContato = BOT_NAME;
+            } else {
+                nomeContato = msg.pushName || msg.key.participant || from;
+            }
         }
         const nomeContatoFormatado = nomeGrupo ? `[${nomeGrupo}] ${nomeContato}` : nomeContato;
         console.log(`📥 Mensagem de ${nomeContatoFormatado}: ${text}`);
 
-        // Salvar histórico
         if (!messageHistory[from]) messageHistory[from] = [];
         messageHistory[from].push(`${nomeContatoFormatado}: ${text}`);
         saveHistory(messageHistory);
 
-        // Só entra no fluxo e responde se começar com "joaozinho"
-        if (text.trim().toLowerCase().startsWith('joaozinho')) {
-            await flowManager.handleMessage(from, text, async (reply) => {
-                await sendMessage(from, reply, msg);
-            });
-        }
+        const senderId = from.endsWith('@g.us') ? (msg.key.participant || from) : from;
+        await flowManager.handleMessage(from, text, senderId, async (reply) => {
+            await sendMessage(from, reply, msg);
+        });
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -113,7 +128,6 @@ app.post('/send', async (req, res) => {
     }
     try {
         await sockGlobal.sendMessage(id, { text: mensagem });
-        // Salva no histórico também
         if (!messageHistory[id]) messageHistory[id] = [];
         messageHistory[id].push(`(API): ${mensagem}`);
         saveHistory(messageHistory);

@@ -3,6 +3,7 @@ import { Flow } from '../flows/Flow';
 interface ActiveFlow {
     flow: Flow;
     state: any;
+    userId: string;
 }
 
 export class FlowManager {
@@ -21,24 +22,27 @@ export class FlowManager {
         delete this.activeFlows[conversationId];
     }
 
-    async handleMessage(conversationId: string, message: string, send: (text: string) => Promise<void>) {
+    async handleMessage(conversationId: string, message: string, senderId: string, send: (text: string) => Promise<void>) {
         const active = this.getActiveFlow(conversationId);
 
         if (active) {
+            // Apenas o usuário que iniciou o fluxo pode continuar
+            if (active.userId !== senderId) return;
             const finished = await active.flow.handle(conversationId, message, active.state, send);
             if (finished) this.clearActiveFlow(conversationId);
             return;
         }
 
+
+        const prefix = message.trim().split(/\s+/)[0].toLowerCase();
         for (const flow of this.flows) {
-            if (flow.shouldStart(message)) {
+            if (flow.shouldStart(prefix)) {
                 const state = {};
-                this.activeFlows[conversationId] = { flow, state };
+                this.activeFlows[conversationId] = { flow, state, userId: senderId };
                 await flow.start(conversationId, message, send);
                 return;
             }
         }
-
         // Nenhum fluxo aceitou, ignorar ou enviar mensagem padrão.
     }
 }

@@ -4,7 +4,7 @@ export class ServicosFlow implements Flow {
     name = 'servicos';
 
     shouldStart(message: string): boolean {
-        return message.toLowerCase().startsWith('/manutprotheus');
+        return message.toLowerCase().startsWith('manutprotheus');
     }
 
     async start(from: string, message: string, send: (text: string) => Promise<void>) {
