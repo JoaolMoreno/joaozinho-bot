@@ -54,9 +54,38 @@ async function connectToWhatsApp(): Promise<void> {
         }
     });
 
+    let lastSentTimestamps: Record<string, number> = {};
+    let messageQueues: Record<string, { queue: Array<{text: string, quotedMsg?: any}>, processing: boolean }> = {};
+
     async function sendMessage(number: string, text: string, quotedMsg?: any): Promise<void> {
-        const finalMessage = '🤖\n' + text;
-        await sock.sendMessage(number, { text: finalMessage }, { quoted: quotedMsg });
+        if (!messageQueues[number]) {
+            messageQueues[number] = { queue: [], processing: false };
+        }
+        messageQueues[number].queue.push({ text, quotedMsg });
+        if (!messageQueues[number].processing) {
+            messageQueues[number].processing = true;
+            await processQueue(number);
+        }
+    }
+
+    async function processQueue(number: string): Promise<void> {
+        while (messageQueues[number].queue.length > 0) {
+            const { text, quotedMsg } = messageQueues[number].queue.shift()!;
+            const now = Date.now();
+            const lastSent = lastSentTimestamps[number] || 0;
+            const elapsed = now - lastSent;
+            const minInterval = 1000;
+            if (elapsed < minInterval) {
+                const waitTime = minInterval - elapsed;
+                console.log(`⏳ Aguardando ${waitTime}ms para evitar spam:`, text);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+            lastSentTimestamps[number] = Date.now();
+            const finalMessage = '🤖\n' + text;
+            await sock.sendMessage(number, { text: finalMessage }, { quoted: quotedMsg });
+        }
+
+        delete messageQueues[number];
     }
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -102,6 +131,7 @@ async function connectToWhatsApp(): Promise<void> {
         if (!messageHistory[from]) messageHistory[from] = [];
         messageHistory[from].push(`${nomeContatoFormatado}: ${text}`);
         saveHistory(messageHistory);
+        if (msg.key.fromMe) return;
 
         const senderId = from.endsWith('@g.us') ? (msg.key.participant || from) : from;
         await flowManager.handleMessage(from, text, senderId, async (reply) => {

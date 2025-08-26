@@ -1,4 +1,5 @@
 import { Flow } from './Flow';
+import { EventSource } from "eventsource";
 
 export class ServicosFlow implements Flow {
     name = 'servicos';
@@ -11,9 +12,10 @@ export class ServicosFlow implements Flow {
         const opcoes = `
 Você solicitou gerenciar serviços. Escolha uma opção:
 1️⃣ status
-2️⃣ iniciar
-3️⃣ encerrar
-4️⃣ reiniciar
+2️⃣ status completo
+3️⃣ iniciar
+4️⃣ encerrar
+5️⃣ reiniciar
 
 Envie a opção desejada.
 `;
@@ -26,26 +28,70 @@ Envie a opção desejada.
         if (!state.etapa) state.etapa = 'aguardando_opcao';
 
         if (state.etapa === 'aguardando_opcao') {
-            if (['1', 'status'].includes(msg)) {
-                await send('Status ambiente linux protheus... \n' +
-                    'Status LICENCE SERVER - /etc/init.d/totvslicense : [ OK ] : PORT: 5556 2235 8020 : PID: 550321\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status APP SQL LITE - /etc/init.d/totvsappsqllite : [ OK ] : PORT: 5056 46727 15056 57661 : PID: 550672\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status DBACCESS PRIMARIO - /etc/init.d/totvsdbaccessprimario : [ OK ] : PORT: 7890 : PID: 550721\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status DBACCESS SECUNDARIO - /etc/init.d/totvsdbaccesssecundario : [ OK ] : PORT: 7891 : PID: 550951\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status BROKER SMARTCLIENT WEB - /etc/init.d/totvsbrokerweb : [ OK ] : PORT: 38349 54171 443 : PID: 551167\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status BROKER CLIENT WEB STO - /etc/init.d/totvsbrokerwebsto : [ OK ] : PORT: 2443 : PID: 551206\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status BROKER SMARTCLIENT BETA - /etc/init.d/totvsbrokerbeta : [ OK ] : PORT: 38257 41437 3003 : PID: 2232861\n' +
-                    '-------------------------------------------------------------\n' +
-                    'Status APP DESENVOLVIMENTO - /etc/init.d/totvsappdesenv : [ OK ] : PORT: 56247 45325 48959 1285 3001 : PID: 551254\n' +
-                    '-------------------------------------------------------------');
+            let tipoStatus: 'simples' | 'completo' | null = null;
+            if (["1", "status"].includes(msg)) tipoStatus = 'simples';
+            if (["2", "status completo", "statuscompleto"].includes(msg)) tipoStatus = 'completo';
+            if (tipoStatus) {
+                state.tipoStatus = tipoStatus;
+                await send(tipoStatus === 'simples' ? '🔎 Consulta de status (simples) iniciada...' : '🔎 Consulta de status completa iniciada...');
+                const sseUrl = 'http://localhost:8000/execute';
+                const source = new EventSource(sseUrl);
+                let fluxoFinalizado = false;
+                const servidores: Record<string, any[]> = {};
+
+                await new Promise<void>((resolve) => {
+                    source.onmessage = async (event: MessageEvent) => {
+                        let data: any;
+                        try {
+                            data = JSON.parse(event.data.replace(/^data:\s*/, '').trim());
+                        } catch (err) {
+                            await send('Erro ao processar evento de serviço.');
+                            return;
+                        }
+                        if (data.type === 'service') {
+                            const serviceEvent = data;
+                            if (!servidores[serviceEvent.server_name]) {
+                                servidores[serviceEvent.server_name] = [];
+                            }
+                            servidores[serviceEvent.server_name].push(serviceEvent.service);
+                        } else if (data.type === 'all_completed') {
+                            fluxoFinalizado = true;
+                            source.close();
+                            await (async () => {
+                                for (const [servidor, servicos] of Object.entries(servidores)) {
+                                    servicos.sort((a, b) => a.name.localeCompare(b.name));
+                                    let mensagem = `Servidor: ${servidor}\n`;
+                                    for (const servico of servicos) {
+                                        if (state.tipoStatus === 'simples') {
+                                            mensagem += `Serviço: ${servico.name}\nStatus: ${servico.status}\n\n`;
+                                        } else {
+                                            mensagem +=
+                                                `Status do serviço: ${servico.name}\n` +
+                                                `Status: ${servico.status}\n` +
+                                                `Processo: ${servico.process}\n` +
+                                                `Path: ${servico.processPath}\n` +
+                                                `Portas: ${(servico.ports || []).join(', ')}\n` +
+                                                `PID: ${servico.pid}\n\n`;
+                                        }
+                                    }
+                                    await send(mensagem.trim());
+                                    await new Promise(res => setTimeout(res, 500));
+                                }
+                                resolve();
+                            })();
+                        }
+                    };
+                    source.onerror = async () => {
+                        await send('Erro ao conectar ao serviço de status.');
+                        source.close();
+                        resolve();
+                    };
+                });
+                if (fluxoFinalizado) {
+                    await send('✅ Consulta de status finalizada.');
+                }
                 return true; // fluxo concluído
-            } else if (['2', 'iniciar', '3', 'encerrar', '4', 'reiniciar'].includes(msg)) {
+            } else if (["3", "iniciar", "4", "encerrar", "5", "reiniciar"].includes(msg)) {
                 state.acao = this.mapearOpcao(msg);
                 state.etapa = 'confirmacao';
                 await send(`⚠️ Você realmente quer ${state.acao} o serviço? Responda 'sim' ou 'não'.`);
@@ -76,9 +122,9 @@ Envie a opção desejada.
     }
 
     private mapearOpcao(msg: string): string {
-        if (msg === '2' || msg === 'iniciar') return 'iniciar';
-        if (msg === '3' || msg === 'encerrar') return 'encerrar';
-        if (msg === '4' || msg === 'reiniciar') return 'reiniciar';
+        if (msg === '3' || msg === 'iniciar') return 'iniciar';
+        if (msg === '4' || msg === 'encerrar') return 'encerrar';
+        if (msg === '5' || msg === 'reiniciar') return 'reiniciar';
         return 'status';
     }
 
