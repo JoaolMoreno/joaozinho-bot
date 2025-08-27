@@ -3,7 +3,7 @@ export interface Flow {
 
     shouldStart(message: string): boolean;
 
-    start(from: string, message: string, send: (text: string) => Promise<void>): Promise<void>;
+    start(from: string, message: string, state: any, send: (text: string) => Promise<void>): Promise<boolean>;
 
     handle(from: string, message: string, state: any, send: (text: string) => Promise<void>): Promise<boolean>;
 }

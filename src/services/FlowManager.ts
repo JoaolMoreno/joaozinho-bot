@@ -39,7 +39,10 @@ export class FlowManager {
             if (flow.shouldStart(prefix)) {
                 const state = {};
                 this.activeFlows[conversationId] = { flow, state, userId: senderId };
-                await flow.start(conversationId, message, send);
+                const finished = await flow.start(conversationId, message, state, async (reply) => {
+                    await send(reply);
+                });
+                if (finished) this.clearActiveFlow(conversationId);
                 return;
             }
         }

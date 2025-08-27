@@ -1,5 +1,5 @@
-import { Flow } from './Flow';
-import { EventSource } from "eventsource";
+import {Flow} from './Flow';
+import {EventSource} from "eventsource";
 
 export class ServicosFlow implements Flow {
     name = 'servicos';
@@ -8,17 +8,14 @@ export class ServicosFlow implements Flow {
         return message.toLowerCase().startsWith('manutprotheus');
     }
 
-    async start(from: string, message: string, send: (text: string) => Promise<void>) {
+    async start(from: string, message: string, state: any, send: (text: string) => Promise<void>): Promise<boolean> {
         const partes = message.trim().split(/\s+/);
         // Se houver argumentos após o comando, já processa no handle
         if (partes.length > 1) {
             // Remove o comando inicial e junta o resto como se fosse a próxima mensagem
             const argumento = partes.slice(1).join(' ');
-            // Cria um estado inicial vazio
-            const state: any = {};
             // Chama o handle como se o usuário já tivesse enviado a opção
-            await this.handle(from, argumento, state, send);
-            return;
+            return await this.handle(from, argumento, state, send);
         }
         const opcoes = `
 Você solicitou gerenciar serviços. Escolha uma opção:
@@ -31,6 +28,7 @@ Você solicitou gerenciar serviços. Escolha uma opção:
 Envie a opção desejada.
 `;
         await send(opcoes);
+        return false;
     }
 
     async handle(from: string, message: string, state: any, send: (text: string) => Promise<void>): Promise<boolean> {
@@ -74,11 +72,11 @@ Envie a opção desejada.
                                     let mensagem = `Servidor: ${servidor}\n`;
                                     for (const servico of servicos) {
                                         if (state.tipoStatus === 'simples') {
-                                            mensagem += `Serviço: \`${servico.name}\`\nStatus: \`${servico.status}\`\n\n`;
+                                            mensagem += `Serviço: \`${servico.name}\`\nStatus: ${this.getStatusEmoji(servico.status)} \`${servico.status}\`\n\n`;
                                         } else {
                                             mensagem +=
                                                 `Status do serviço: \`${servico.name}\`\n` +
-                                                `Status: \`${servico.status}\`\n` +
+                                                `Status: ${this.getStatusEmoji(servico.status)} \`${servico.status}\`\n` +
                                                 `Processo: ${servico.process}\n` +
                                                 `Path: ${servico.processPath}\n` +
                                                 `Portas: ${(servico.ports || []).join(', ')}\n` +
@@ -142,5 +140,15 @@ Envie a opção desejada.
 
     private capitalize(text: string): string {
         return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    private getStatusEmoji(status: string): string {
+        switch (status.toUpperCase()) {
+            case 'OK': return '🟢';
+            case 'ERRO': return '🔴';
+            case 'FAILURE': return '🔴';
+            case 'NOT_RUNNING': return '🔴️';
+            default: return '❓';
+        }
     }
 }
