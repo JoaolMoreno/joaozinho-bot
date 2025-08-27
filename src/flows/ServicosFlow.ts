@@ -9,6 +9,17 @@ export class ServicosFlow implements Flow {
     }
 
     async start(from: string, message: string, send: (text: string) => Promise<void>) {
+        const partes = message.trim().split(/\s+/);
+        // Se houver argumentos após o comando, já processa no handle
+        if (partes.length > 1) {
+            // Remove o comando inicial e junta o resto como se fosse a próxima mensagem
+            const argumento = partes.slice(1).join(' ');
+            // Cria um estado inicial vazio
+            const state: any = {};
+            // Chama o handle como se o usuário já tivesse enviado a opção
+            await this.handle(from, argumento, state, send);
+            return;
+        }
         const opcoes = `
 Você solicitou gerenciar serviços. Escolha uma opção:
 1️⃣ status
@@ -63,11 +74,11 @@ Envie a opção desejada.
                                     let mensagem = `Servidor: ${servidor}\n`;
                                     for (const servico of servicos) {
                                         if (state.tipoStatus === 'simples') {
-                                            mensagem += `Serviço: ${servico.name}\nStatus: ${servico.status}\n\n`;
+                                            mensagem += `Serviço: \`${servico.name}\`\nStatus: \`${servico.status}\`\n\n`;
                                         } else {
                                             mensagem +=
-                                                `Status do serviço: ${servico.name}\n` +
-                                                `Status: ${servico.status}\n` +
+                                                `Status do serviço: \`${servico.name}\`\n` +
+                                                `Status: \`${servico.status}\`\n` +
                                                 `Processo: ${servico.process}\n` +
                                                 `Path: ${servico.processPath}\n` +
                                                 `Portas: ${(servico.ports || []).join(', ')}\n` +
@@ -84,6 +95,7 @@ Envie a opção desejada.
                     source.onerror = async () => {
                         await send('Erro ao conectar ao serviço de status.');
                         source.close();
+                        fluxoFinalizado = true;
                         resolve();
                     };
                 });
